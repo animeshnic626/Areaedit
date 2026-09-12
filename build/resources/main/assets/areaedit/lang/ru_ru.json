@@ -1,0 +1,8 @@
+{
+  "item.areaedit.pink_stick": "Розовая палка выделения",
+  "item.areaedit.pink_bucket": "Розовое ведро заливки",
+  "item.areaedit.pink_lantern": "Розовый фонарь очистки",
+  "itemGroup.areaedit.areaedit_tab": "Инструменты редактора зон",
+  "message.areaedit.reset": "Все выделения полностью сброшены.",
+  "message.areaedit.undo": "Последнее удаление успешно восстановлено!"
+}

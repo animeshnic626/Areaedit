@@ -1,0 +1,8 @@
+{
+  "item.areaedit.pink_stick": "Pink Selection Stick",
+  "item.areaedit.pink_bucket": "Pink Fill Bucket",
+  "item.areaedit.pink_lantern": "Pink Clear Lantern",
+  "itemGroup.areaedit.areaedit_tab": "Area Edit Tools",
+  "message.areaedit.reset": "All selections have been cleared.",
+  "message.areaedit.undo": "Last deletion restored!"
+}

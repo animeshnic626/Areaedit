@@ -1,0 +1,10 @@
+Manifest-Version: 1.0
+Specification-Title: areaedit
+Specification-Vendor: animeshnic626
+Specification-Version: 1
+Implementation-Title: areaedit
+Implementation-Version: 626
+Implementation-Vendor: animeshnic626
+Implementation-Timestamp: 2026-09-11T16:38:57+0300
+MixinConfigs: areaedit.mixins.json
+
