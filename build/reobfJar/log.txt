@@ -134,9 +134,9 @@ Adding Libraries to Inheritance
 Reading Input: C:\Users\Admin\IdeaProjects\AreaEdit\build\libs\areaedit-626.jar
 Adding input to inheritance map
 Processing entries
+Conflicting propagated mapping for animeshnic626/areaedit/item/SmartBucketItem/useOn(Lnet/minecraft/world/item/context/UseOnContext;)Lnet/minecraft/world/InteractionResult; from net/minecraft/world/item/Item/useOn(Lnet/minecraft/world/item/context/UseOnContext;)Lnet/minecraft/world/InteractionResult;: useOn -> m_6225_
 Conflicting propagated mapping for animeshnic626/areaedit/item/SmartLanternItem/use(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;)Lnet/minecraft/world/InteractionResultHolder; from net/minecraft/world/item/Item/use(Lnet/minecraft/world/level/Level;Lnet/minecraft/world/entity/player/Player;Lnet/minecraft/world/InteractionHand;)Lnet/minecraft/world/InteractionResultHolder;: use -> m_7203_
 Conflicting propagated mapping for animeshnic626/areaedit/item/SmartLanternItem/useOn(Lnet/minecraft/world/item/context/UseOnContext;)Lnet/minecraft/world/InteractionResult; from net/minecraft/world/item/Item/useOn(Lnet/minecraft/world/item/context/UseOnContext;)Lnet/minecraft/world/InteractionResult;: useOn -> m_6225_
-Conflicting propagated mapping for animeshnic626/areaedit/item/SmartBucketItem/useOn(Lnet/minecraft/world/item/context/UseOnContext;)Lnet/minecraft/world/InteractionResult; from net/minecraft/world/item/Item/useOn(Lnet/minecraft/world/item/context/UseOnContext;)Lnet/minecraft/world/InteractionResult;: useOn -> m_6225_
 Conflicting propagated mapping for animeshnic626/areaedit/item/SmartStickItem/useOn(Lnet/minecraft/world/item/context/UseOnContext;)Lnet/minecraft/world/InteractionResult; from net/minecraft/world/item/Item/useOn(Lnet/minecraft/world/item/context/UseOnContext;)Lnet/minecraft/world/InteractionResult;: useOn -> m_6225_
 Conflicting propagated mapping for net/minecraft/world/entity/LivingEntity/lambda$addAdditionalSaveData$3(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/nbt/Tag;)V from net/minecraft/world/entity/player/Player/lambda$addAdditionalSaveData$3(Lnet/minecraft/nbt/CompoundTag;Lnet/minecraft/nbt/Tag;)V: lambda$addAdditionalSaveData$3 -> m_219754_
 Adding extras
@@ -150,7 +150,12 @@ Writing Output: C:\Users\Admin\IdeaProjects\AreaEdit\build\reobfJar\output.jar
   animeshnic626/areaedit/Areaedit.class
   animeshnic626/areaedit/client/
   animeshnic626/areaedit/client/ClientEventHandler.class
+  animeshnic626/areaedit/command/
+  animeshnic626/areaedit/command/AreaEditCommand.class
+  animeshnic626/areaedit/config/
+  animeshnic626/areaedit/config/AreaEditConfig.class
   animeshnic626/areaedit/execution/
+  animeshnic626/areaedit/execution/BatchBlockExecutor$ServerDeletionTask.class
   animeshnic626/areaedit/execution/BatchBlockExecutor.class
   animeshnic626/areaedit/init/
   animeshnic626/areaedit/init/ModCreativeTabs.class
@@ -172,6 +177,7 @@ Writing Output: C:\Users\Admin\IdeaProjects\AreaEdit\build\reobfJar\output.jar
   animeshnic626/areaedit/selection/ColumnSelection.class
   animeshnic626/areaedit/selection/SelectionManager$SelectionSnapshot.class
   animeshnic626/areaedit/selection/SelectionManager.class
+  animeshnic626/areaedit/selection/SelectionSaveHandler.class
   animeshnic626/areaedit/selection/SelectionState.class
   animeshnic626/areaedit/undo/
   animeshnic626/areaedit/undo/BlockSnapshot.class
