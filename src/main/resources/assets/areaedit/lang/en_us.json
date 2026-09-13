@@ -1,8 +1,10 @@
 {
-  "item.areaedit.pink_stick": "Pink Selection Stick",
-  "item.areaedit.pink_bucket": "Pink Fill Bucket",
-  "item.areaedit.pink_lantern": "Pink Clear Lantern",
-  "itemGroup.areaedit.areaedit_tab": "Area Edit Tools",
-  "message.areaedit.reset": "All selections have been cleared.",
-  "message.areaedit.undo": "Last deletion restored!"
+  "item.areaedit.pink_stick": "Pink Stick",
+  "item.areaedit.pink_bucket": "Pink Bucket",
+  "item.areaedit.pink_lantern": "Pink Lantern",
+  "creativetab.areaedit_tab": "Areaedit",
+  "key.categories.areaedit": "Areaedit Mod",
+  "key.areaedit.extend_height": "Extend Selection (to Y=626)",
+  "key.areaedit.cap_player_y": "Cap Height at Player Y",
+  "key.areaedit.clear_selection": "Clear All Selection"
 }

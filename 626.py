@@ -1,439 +1,354 @@
 import os
-from pathlib import Path
 
-# Укажи путь к папке с пакетом (или запусти скрипт прямо в корне проекта)
-BASE_DIR = Path("src/main/java/animeshnic626/areaedit")
+JAVA_DIR = os.path.join("src", "main", "java", "animeshnic626", "areaedit")
 
-# Код новых разделенных файлов
-FILES = {
-    BASE_DIR / "math/ColumnPos.java": '''package animeshnic626.areaedit.math;
+files = {
+    # 1. Packet logic to send customMaxY to server
+    os.path.join(JAVA_DIR, "network", "ServerboundAreaActionPacket.java"): """package animeshnic626.areaedit.network;
 
-import java.util.Objects;
+import animeshnic626.areaedit.execution.BatchBlockExecutor;
+import animeshnic626.areaedit.selection.ColumnPos;
+import animeshnic626.areaedit.selection.ColumnSelection;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraftforge.network.NetworkEvent;
 
-public class ColumnPos {
-    public final int x, z, minY, maxY;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.function.Supplier;
 
-    public ColumnPos(int x, int z, int minY, int maxY) {
-        this.x = x;
-        this.z = z;
-        this.minY = minY;
-        this.maxY = maxY;
+public class ServerboundAreaActionPacket {
+    public enum Action {
+        DELETE,
+        UNDO,
+        REDO
     }
 
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof ColumnPos col)) return false;
-        return x == col.x && z == col.z && minY == col.minY && maxY == col.maxY;
+    private final Action action;
+    private final List<ColumnSelection> columns;
+    private final Integer customMaxY;
+
+    public ServerboundAreaActionPacket(Action action, List<ColumnSelection> columns, Integer customMaxY) {
+        this.action = action;
+        this.columns = columns != null ? columns : new ArrayList<>();
+        this.customMaxY = customMaxY;
     }
 
-    @Override
-    public int hashCode() {
-        return Objects.hash(x, z, minY, maxY);
+    public ServerboundAreaActionPacket(FriendlyByteBuf buf) {
+        this.action = buf.readEnum(Action.class);
+        int size = buf.readVarInt();
+        this.columns = new ArrayList<>(size);
+        for (int i = 0; i < size; i++) {
+            int x = buf.readInt();
+            int z = buf.readInt();
+            int yMin = buf.readInt();
+            int yMax = buf.readInt();
+            this.columns.add(new ColumnSelection(new ColumnPos(x, z), yMin, yMax));
+        }
+        if (buf.readBoolean()) {
+            this.customMaxY = buf.readInt();
+        } else {
+            this.customMaxY = null;
+        }
+    }
+
+    public void encode(FriendlyByteBuf buf) {
+        buf.writeEnum(action);
+        buf.writeVarInt(columns.size());
+        for (ColumnSelection col : columns) {
+            buf.writeInt(col.getPos().x());
+            buf.writeInt(col.getPos().z());
+            buf.writeInt(col.getYMin());
+            buf.writeInt(col.getYMax());
+        }
+        if (customMaxY != null) {
+            buf.writeBoolean(true);
+            buf.writeInt(customMaxY);
+        } else {
+            buf.writeBoolean(false);
+        }
+    }
+
+    public void handle(Supplier<NetworkEvent.Context> contextSupplier) {
+        NetworkEvent.Context ctx = contextSupplier.get();
+        ctx.enqueueWork(() -> {
+            ServerPlayer player = ctx.getSender();
+            if (player != null) {
+                switch (action) {
+                    case DELETE -> BatchBlockExecutor.executeServerDeletion(player.serverLevel(), columns, customMaxY);
+                    case UNDO -> BatchBlockExecutor.performServerUndo(player.serverLevel());
+                    case REDO -> BatchBlockExecutor.performServerRedo(player.serverLevel());
+                }
+            }
+        });
+        ctx.setPacketHandled(true);
     }
 }
-''',
+""",
 
-    BASE_DIR / "math/Point2D.java": '''package animeshnic626.areaedit.math;
+    # 2. BatchBlockExecutor (Uses customMaxY from client/server context)
+    os.path.join(JAVA_DIR, "execution", "BatchBlockExecutor.java"): """package animeshnic626.areaedit.execution;
 
-import java.util.Objects;
-
-public class Point2D {
-    public final int x, z;
-
-    public Point2D(int x, int z) {
-        this.x = x;
-        this.z = z;
-    }
-
-    @Override
-    public boolean equals(Object o) {
-        if (this == o) return true;
-        if (!(o instanceof Point2D p)) return false;
-        return x == p.x && z == p.z;
-    }
-
-    @Override
-    public int hashCode() {
-        return Objects.hash(x, z);
-    }
-}
-''',
-
-    BASE_DIR / "math/AreaFillHandler.java": '''package animeshnic626.areaedit.math;
-
+import animeshnic626.areaedit.selection.ColumnSelection;
+import animeshnic626.areaedit.selection.SelectionManager;
+import animeshnic626.areaedit.selection.SelectionState;
+import animeshnic626.areaedit.undo.BlockSnapshot;
+import animeshnic626.areaedit.undo.UndoHistory;
 import net.minecraft.core.BlockPos;
-import java.util.*;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.state.BlockState;
 
-public class AreaFillHandler {
+import java.util.ArrayList;
+import java.util.List;
 
-    public static Set<BlockPos> calculateInnerArea(Set<ColumnPos> selectedColumns) {
-        Set<BlockPos> result = new HashSet<>();
-        if (selectedColumns.isEmpty()) return result;
+public class BatchBlockExecutor {
 
-        Set<Point2D> contour = new HashSet<>();
-        int minY = Integer.MAX_VALUE;
-        int maxY = Integer.MIN_VALUE;
+    public static void executeServerDeletion(ServerLevel level, List<ColumnSelection> columns, Integer clientMaxY) {
+        if (columns == null || columns.isEmpty()) return;
 
-        for (ColumnPos col : selectedColumns) {
-            contour.add(new Point2D(col.x, col.z));
-            if (col.minY < minY) minY = col.minY;
-            if (col.maxY > maxY) maxY = col.maxY;
-        }
+        List<BlockSnapshot> removedBlocks = new ArrayList<>();
+        BlockPos.MutableBlockPos mutablePos = new BlockPos.MutableBlockPos();
 
-        int minX = contour.stream().mapToInt(p -> p.x).min().orElse(0) - 1;
-        int maxX = contour.stream().mapToInt(p -> p.x).max().orElse(0) + 1;
-        int minZ = contour.stream().mapToInt(p -> p.z).min().orElse(0) - 1;
-        int maxZ = contour.stream().mapToInt(p -> p.z).max().orElse(0) + 1;
+        for (ColumnSelection sel : columns) {
+            int x = sel.getPos().x();
+            int z = sel.getPos().z();
+            int yMin = sel.getYMin();
+            int yMax = sel.getYMax();
 
-        Set<Point2D> outside = new HashSet<>();
-        Queue<Point2D> queue = new ArrayDeque<>();
+            if (SelectionState.isExtendedTo626()) {
+                yMax = 626;
+            } else if (clientMaxY != null) {
+                yMax = Math.min(yMax, clientMaxY);
+            } else if (SelectionState.getCustomMaxY() != null) {
+                yMax = Math.min(yMax, SelectionState.getCustomMaxY());
+            }
 
-        Point2D start = new Point2D(minX, minZ);
-        queue.add(start);
-        outside.add(start);
+            for (int y = yMin; y <= yMax; y++) {
+                mutablePos.set(x, y, z);
+                BlockState state = level.getBlockState(mutablePos);
 
-        int[][] dirs = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-
-        while (!queue.isEmpty()) {
-            Point2D p = queue.poll();
-
-            for (int[] d : dirs) {
-                int nx = p.x + d[0];
-                int nz = p.z + d[1];
-
-                if (nx < minX || nx > maxX || nz < minZ || nz > maxZ) continue;
-                Point2D next = new Point2D(nx, nz);
-
-                if (!contour.contains(next) && outside.add(next)) {
-                    queue.add(next);
+                if (!state.isAir()) {
+                    removedBlocks.add(new BlockSnapshot(mutablePos.immutable(), state, null));
+                    level.setBlock(mutablePos, Blocks.AIR.defaultBlockState(), 3);
                 }
             }
         }
 
-        for (int x = minX + 1; x < maxX; x++) {
-            for (int z = minZ + 1; z < maxZ; z++) {
-                Point2D pt = new Point2D(x, z);
-                if (!contour.contains(pt) && !outside.contains(pt)) {
-                    for (int y = minY; y <= maxY; y++) {
-                        result.add(new BlockPos(x, y, z));
-                    }
-                }
-            }
+        if (!removedBlocks.isEmpty()) {
+            UndoHistory.pushUndo(removedBlocks, SelectionManager.createSnapshot());
+            SelectionManager.clearAll();
         }
-        return result;
+    }
+
+    public static void performServerUndo(ServerLevel level) {
+        UndoHistory.UndoEntry entry = UndoHistory.popUndo();
+        if (entry == null) return;
+
+        for (BlockSnapshot snapshot : entry.blocks()) {
+            level.setBlock(snapshot.pos(), snapshot.state(), 3);
+        }
+
+        SelectionManager.restoreSnapshot(entry.selection());
+    }
+
+    public static void performServerRedo(ServerLevel level) {
+        UndoHistory.UndoEntry entry = UndoHistory.popRedo();
+        if (entry == null) return;
+
+        for (BlockSnapshot snapshot : entry.blocks()) {
+            level.setBlock(snapshot.pos(), Blocks.AIR.defaultBlockState(), 3);
+        }
+
+        SelectionManager.clearAll();
     }
 }
-''',
+""",
 
-    BASE_DIR / "init/ModItems.java": '''package animeshnic626.areaedit.init;
+    # 3. SmartLanternItem sending customMaxY
+    os.path.join(JAVA_DIR, "item", "SmartLanternItem.java"): """package animeshnic626.areaedit.item;
 
-import animeshnic626.areaedit.Areaedit;
-import net.minecraft.core.registries.Registries;
-import net.minecraft.network.chat.Component;
-import net.minecraft.world.item.*;
-import net.minecraftforge.registries.DeferredRegister;
-import net.minecraftforge.registries.ForgeRegistries;
-import net.minecraftforge.registries.RegistryObject;
+import animeshnic626.areaedit.network.ModNetwork;
+import animeshnic626.areaedit.network.ServerboundAreaActionPacket;
+import animeshnic626.areaedit.selection.SelectionManager;
+import animeshnic626.areaedit.selection.SelectionState;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.InteractionResultHolder;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.context.UseOnContext;
+import net.minecraft.world.level.Level;
 
-public class ModItems {
-    public static final DeferredRegister<Item> ITEMS = DeferredRegister.create(ForgeRegistries.ITEMS, Areaedit.MODID);
-    public static final DeferredRegister<CreativeModeTab> TABS = DeferredRegister.create(Registries.CREATIVE_MODE_TAB, Areaedit.MODID);
+import java.util.ArrayList;
 
-    public static final RegistryObject<Item> PINK_STICK = ITEMS.register("pink_stick",
-            () -> new Item(new Item.Properties().stacksTo(1)));
-    public static final RegistryObject<Item> PINK_BUCKET = ITEMS.register("pink_bucket",
-            () -> new Item(new Item.Properties().stacksTo(1)));
-    public static final RegistryObject<Item> PINK_LANTERN = ITEMS.register("pink_lantern",
-            () -> new Item(new Item.Properties().stacksTo(1)));
+public class SmartLanternItem extends Item {
+    public SmartLanternItem(Properties properties) {
+        super(properties);
+    }
 
-    public static final RegistryObject<CreativeModeTab> AREAEDIT_TAB = TABS.register("areaedit_tab",
-            () -> CreativeModeTab.builder()
-                    .title(Component.translatable("itemGroup." + Areaedit.MODID + ".areaedit_tab"))
-                    .icon(() -> new ItemStack(PINK_BUCKET.get()))
-                    .displayItems((parameters, output) -> {
-                        output.accept(PINK_STICK.get());
-                        output.accept(PINK_BUCKET.get());
-                        output.accept(PINK_LANTERN.get());
-                    })
-                    .build());
+    @Override
+    public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
+        if (level.isClientSide() && hand == InteractionHand.MAIN_HAND) {
+            if (!SelectionManager.getSelectedColumns().isEmpty()) {
+                ModNetwork.sendToServer(new ServerboundAreaActionPacket(
+                        ServerboundAreaActionPacket.Action.DELETE,
+                        new ArrayList<>(SelectionManager.getSelectedColumns().values()),
+                        SelectionState.getCustomMaxY()
+                ));
+                SelectionManager.clearAll();
+            }
+            return InteractionResultHolder.success(player.getItemInHand(hand));
+        }
+        return InteractionResultHolder.pass(player.getItemInHand(hand));
+    }
+
+    @Override
+    public InteractionResult useOn(UseOnContext context) {
+        if (context.getLevel().isClientSide() && context.getHand() == InteractionHand.MAIN_HAND) {
+            if (!SelectionManager.getSelectedColumns().isEmpty()) {
+                ModNetwork.sendToServer(new ServerboundAreaActionPacket(
+                        ServerboundAreaActionPacket.Action.DELETE,
+                        new ArrayList<>(SelectionManager.getSelectedColumns().values()),
+                        SelectionState.getCustomMaxY()
+                ));
+                SelectionManager.clearAll();
+            }
+            return InteractionResult.SUCCESS;
+        }
+        return InteractionResult.PASS;
+    }
+
+    @Override
+    public boolean onBlockStartBreak(ItemStack stack, net.minecraft.core.BlockPos pos, Player player) {
+        return true;
+    }
 }
-''',
+""",
 
-    BASE_DIR / "client/KeyBindings.java": '''package animeshnic626.areaedit.client;
+    # 4. ClientEventHandler Keybind Listener
+    os.path.join(JAVA_DIR, "client", "ClientEventHandler.java"): """package animeshnic626.areaedit.client;
 
-import animeshnic626.areaedit.Areaedit;
-import com.mojang.blaze3d.platform.InputConstants;
-import net.minecraft.client.KeyMapping;
+import animeshnic626.areaedit.init.ModKeyBinds;
+import animeshnic626.areaedit.item.SmartBucketItem;
+import animeshnic626.areaedit.item.SmartLanternItem;
+import animeshnic626.areaedit.item.SmartStickItem;
+import animeshnic626.areaedit.network.ModNetwork;
+import animeshnic626.areaedit.network.ServerboundAreaActionPacket;
+import animeshnic626.areaedit.render.SelectionRenderer;
+import animeshnic626.areaedit.selection.ColumnPos;
+import animeshnic626.areaedit.selection.SelectionManager;
+import animeshnic626.areaedit.selection.SelectionState;
 import net.minecraft.client.Minecraft;
-import net.minecraft.network.chat.Component;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.client.event.InputEvent;
-import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
+import net.minecraftforge.client.event.RenderLevelStageEvent;
+import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
-import org.lwjgl.glfw.GLFW;
 
-@Mod.EventBusSubscriber(modid = Areaedit.MODID, value = Dist.CLIENT)
-public class KeyBindings {
-    public static KeyMapping toggleKey;
+import java.util.ArrayList;
 
-    @SubscribeEvent
-    public static void onRegisterKeyMappings(RegisterKeyMappingsEvent event) {
-        toggleKey = new KeyMapping("key.areaedit.toggle_626", InputConstants.Type.KEYSYM, GLFW.GLFW_KEY_V, "key.categories.world");
-        event.register(toggleKey);
-    }
+@Mod.EventBusSubscriber(modid = "areaedit", value = Dist.CLIENT)
+public class ClientEventHandler {
 
     @SubscribeEvent
     public static void onKeyInput(InputEvent.Key event) {
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player != null && toggleKey != null && toggleKey.consumeClick()) {
-            Areaedit.height626Mode = !Areaedit.height626Mode;
-            mc.player.sendSystemMessage(Component.literal("§d[AreaEdit] Режим 626 высоты: " + (Areaedit.height626Mode ? "ВКЛ" : "ВЫКЛ")));
+        if (mc.player == null || mc.screen != null) return;
+
+        while (ModKeyBinds.EXTEND_HEIGHT_KEY.consumeClick()) {
+            SelectionState.toggleExtendedTo626();
+        }
+
+        while (ModKeyBinds.CAP_PLAYER_Y_KEY.consumeClick()) {
+            int playerBlockY = mc.player.getBlockX() != 0 ? mc.player.getBlockY() : (int) Math.floor(mc.player.getY());
+            if (SelectionState.getCustomMaxY() != null && SelectionState.getCustomMaxY() == playerBlockY) {
+                SelectionState.setCustomMaxY(null);
+            } else {
+                SelectionState.setCustomMaxY(playerBlockY);
+            }
+        }
+
+        while (ModKeyBinds.CLEAR_SELECTION_KEY.consumeClick()) {
+            SelectionManager.clearAll();
         }
     }
-}
-''',
-
-    BASE_DIR / "client/AreaRenderer.java": '''package animeshnic626.areaedit.client;
-
-import animeshnic626.areaedit.Areaedit;
-import animeshnic626.areaedit.math.ColumnPos;
-import com.mojang.blaze3d.vertex.PoseStack;
-import com.mojang.blaze3d.vertex.VertexConsumer;
-import net.minecraft.client.Camera;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.LevelRenderer;
-import net.minecraft.client.renderer.RenderType;
-import net.minecraft.client.renderer.culling.Frustum;
-import net.minecraft.core.BlockPos;
-import net.minecraft.world.phys.AABB;
-import net.minecraft.world.phys.Vec3;
-import net.minecraftforge.api.distmarker.Dist;
-import net.minecraftforge.client.event.RenderLevelStageEvent;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import org.joml.Matrix4f;
-
-@Mod.EventBusSubscriber(modid = Areaedit.MODID, value = Dist.CLIENT)
-public class AreaRenderer {
 
     @SubscribeEvent
     public static void onRenderLevelStage(RenderLevelStageEvent event) {
-        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) return;
-
-        Minecraft mc = Minecraft.getInstance();
-        if (mc.level == null || mc.player == null) return;
-
-        Camera camera = mc.gameRenderer.getMainCamera();
-        Vec3 camPos = camera.getPosition();
-        PoseStack poseStack = event.getPoseStack();
-
-        poseStack.pushPose();
-        poseStack.translate(-camPos.x, -camPos.y, -camPos.z);
-
-        VertexConsumer buffer = mc.renderBuffers().bufferSource().getBuffer(RenderType.lines());
-
-        Frustum frustum = new Frustum(new Matrix4f(poseStack.last().pose()), new Matrix4f(event.getProjectionMatrix()));
-        frustum.prepare(camPos.x, camPos.y, camPos.z);
-
-        synchronized (Areaedit.selectedColumns) {
-            for (ColumnPos col : Areaedit.selectedColumns) {
-                int topY = Areaedit.height626Mode ? 626 : col.maxY;
-                int minY = Math.min(col.minY, topY);
-                int maxY = Math.max(col.minY, topY);
-
-                AABB box = new AABB(col.x, minY, col.z, col.x + 1.0, maxY + 1.0, col.z + 1.0);
-                if (frustum.isVisible(box)) {
-                    LevelRenderer.renderLineBox(poseStack, buffer, box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ, 1.0f, 0.4f, 0.7f, 0.8f);
-                }
-            }
+        if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_TRANSLUCENT_BLOCKS) {
+            SelectionRenderer.render(event.getPoseStack(), event.getFrustum());
         }
-
-        synchronized (Areaedit.filledBlocks) {
-            for (BlockPos pos : Areaedit.filledBlocks) {
-                AABB box = new AABB(pos);
-                if (frustum.isVisible(box)) {
-                    LevelRenderer.renderLineBox(poseStack, buffer, box.minX, box.minY, box.minZ, box.maxX, box.maxY, box.maxZ, 1.0f, 0.2f, 0.5f, 0.6f);
-                }
-            }
-        }
-
-        mc.renderBuffers().bufferSource().endBatch(RenderType.lines());
-        poseStack.popPose();
-    }
-}
-''',
-
-    BASE_DIR / "Areaedit.java": '''package animeshnic626.areaedit;
-
-import animeshnic626.areaedit.init.ModItems;
-import animeshnic626.areaedit.math.AreaFillHandler;
-import animeshnic626.areaedit.math.ColumnPos;
-import net.minecraft.core.BlockPos;
-import net.minecraft.network.chat.Component;
-import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.Item;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.Level;
-import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.state.BlockState;
-import net.minecraftforge.common.MinecraftForge;
-import net.minecraftforge.event.entity.player.PlayerInteractEvent;
-import net.minecraftforge.eventbus.api.IEventBus;
-import net.minecraftforge.eventbus.api.SubscribeEvent;
-import net.minecraftforge.fml.common.Mod;
-import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
-
-import java.util.*;
-
-@Mod(Areaedit.MODID)
-public class Areaedit {
-    public static final String MODID = "areaedit";
-
-    public static final Set<ColumnPos> selectedColumns = Collections.synchronizedSet(new HashSet<>());
-    public static final Set<BlockPos> filledBlocks = Collections.synchronizedSet(new HashSet<>());
-    private static final List<Map<BlockPos, BlockState>> undoHistory = new ArrayList<>();
-
-    public static boolean height626Mode = false;
-
-    public Areaedit(FMLJavaModLoadingContext context) {
-        IEventBus modEventBus = context.getModEventBus();
-        ModItems.ITEMS.register(modEventBus);
-        ModItems.TABS.register(modEventBus);
-
-        MinecraftForge.EVENT_BUS.register(this);
-    }
-
-    public static boolean isHoldingModItem(Player player) {
-        Item main = player.getMainHandItem().getItem();
-        Item off = player.getOffhandItem().getItem();
-        return main == ModItems.PINK_STICK.get() || main == ModItems.PINK_BUCKET.get() || main == ModItems.PINK_LANTERN.get() ||
-               off == ModItems.PINK_STICK.get() || off == ModItems.PINK_BUCKET.get() || off == ModItems.PINK_LANTERN.get();
     }
 
     @SubscribeEvent
-    public void onPlayerInteract(PlayerInteractEvent event) {
+    public static void onLeftClickEmpty(PlayerInteractEvent.LeftClickEmpty event) {
         Player player = event.getEntity();
-        Level level = player.level();
-        ItemStack stack = event.getItemStack();
+        if (player != null && player.getMainHandItem().getItem() instanceof SmartLanternItem) {
+            ServerboundAreaActionPacket.Action action = player.isShiftKeyDown() ?
+                    ServerboundAreaActionPacket.Action.REDO :
+                    ServerboundAreaActionPacket.Action.UNDO;
 
-        if (level.isClientSide()) return;
-
-        if (player.isShiftKeyDown() && isHoldingModItem(player)) {
-            if (event instanceof PlayerInteractEvent.LeftClickBlock || event instanceof PlayerInteractEvent.LeftClickEmpty) {
-                if (!selectedColumns.isEmpty() || !filledBlocks.isEmpty()) {
-                    selectedColumns.clear();
-                    filledBlocks.clear();
-                    player.sendSystemMessage(Component.translatable("message.areaedit.reset"));
-                }
-                event.setCanceled(true);
-                return;
-            }
+            ModNetwork.sendToServer(new ServerboundAreaActionPacket(action, new ArrayList<>(), SelectionState.getCustomMaxY()));
         }
+    }
 
-        if (stack.getItem() == ModItems.PINK_STICK.get()) {
-            if (event instanceof PlayerInteractEvent.RightClickBlock rightEvent) {
-                BlockPos pos = rightEvent.getPos();
-                int minX = pos.getX();
-                int minZ = pos.getZ();
-                int minY = level.getMinBuildHeight();
-                int maxY = level.getMaxBuildHeight() - 1;
+    @SubscribeEvent
+    public static void onLeftClickBlock(PlayerInteractEvent.LeftClickBlock event) {
+        if (event.getLevel().isClientSide()) {
+            Player player = event.getEntity();
+            if (player == null) return;
 
-                int lowestY = minY;
-                int highestY = minY;
-                boolean foundAny = false;
+            if (player.getMainHandItem().getItem() instanceof SmartStickItem) {
+                BlockPos pos = event.getPos();
+                ColumnPos colPos = new ColumnPos(pos.getX(), pos.getZ());
 
-                for (int y = minY; y <= maxY; y++) {
-                    BlockPos checkPos = new BlockPos(minX, y, minZ);
-                    if (!level.isEmptyBlock(checkPos)) {
-                        if (!foundAny) {
-                            lowestY = y;
-                            foundAny = true;
-                        }
-                        highestY = y;
-                    }
-                }
-                if (!foundAny) {
-                    lowestY = pos.getY();
-                    highestY = pos.getY();
+                if (SelectionManager.hasColumn(colPos)) {
+                    SelectionManager.removeColumn(colPos);
                 }
 
-                selectedColumns.add(new ColumnPos(minX, minZ, lowestY, highestY));
-                event.setCanceled(true);
-            } else if (event instanceof PlayerInteractEvent.LeftClickBlock leftEvent) {
-                BlockPos pos = leftEvent.getPos();
-                selectedColumns.removeIf(c -> c.x == pos.getX() && c.z == pos.getZ());
+                BlockState state = event.getLevel().getBlockState(pos);
+                Minecraft.getInstance().particleEngine.destroy(pos, state);
                 event.setCanceled(true);
             }
-        }
+            else if (player.getMainHandItem().getItem() instanceof SmartBucketItem) {
+                BlockPos pos = event.getPos();
+                ColumnPos colPos = new ColumnPos(pos.getX(), pos.getZ());
 
-        if (stack.getItem() == ModItems.PINK_BUCKET.get()) {
-            if (event instanceof PlayerInteractEvent.RightClickBlock) {
-                filledBlocks.clear();
-                filledBlocks.addAll(AreaFillHandler.calculateInnerArea(selectedColumns));
-                event.setCanceled(true);
-            } else if (event instanceof PlayerInteractEvent.LeftClickBlock) {
-                filledBlocks.clear();
+                if (player.isShiftKeyDown()) {
+                    SelectionManager.redoBucketFill();
+                } else {
+                    SelectionManager.removeBucketFillAt(colPos);
+                }
+
+                BlockState state = event.getLevel().getBlockState(pos);
+                Minecraft.getInstance().particleEngine.destroy(pos, state);
                 event.setCanceled(true);
             }
-        }
+            else if (player.getMainHandItem().getItem() instanceof SmartLanternItem) {
+                ServerboundAreaActionPacket.Action action = player.isShiftKeyDown() ?
+                        ServerboundAreaActionPacket.Action.REDO :
+                        ServerboundAreaActionPacket.Action.UNDO;
 
-        if (stack.getItem() == ModItems.PINK_LANTERN.get()) {
-            if (event instanceof PlayerInteractEvent.RightClickBlock) {
-                Map<BlockPos, BlockState> removedBlocks = new HashMap<>();
-
-                for (ColumnPos col : selectedColumns) {
-                    int renderTop = height626Mode ? 626 : col.maxY;
-                    for (int y = col.minY; y <= renderTop; y++) {
-                        BlockPos p = new BlockPos(col.x, y, col.z);
-                        if (!level.isEmptyBlock(p)) {
-                            removedBlocks.put(p, level.getBlockState(p));
-                            level.setBlock(p, Blocks.AIR.defaultBlockState(), 3);
-                        }
-                    }
-                }
-                for (BlockPos p : filledBlocks) {
-                    if (!level.isEmptyBlock(p) && !removedBlocks.containsKey(p)) {
-                        removedBlocks.put(p, level.getBlockState(p));
-                        level.setBlock(p, Blocks.AIR.defaultBlockState(), 3);
-                    }
-                }
-
-                if (!removedBlocks.isEmpty()) {
-                    undoHistory.add(removedBlocks);
-                }
-                selectedColumns.clear();
-                filledBlocks.clear();
-                event.setCanceled(true);
-            } else if (event instanceof PlayerInteractEvent.LeftClickBlock) {
-                if (!undoHistory.isEmpty()) {
-                    Map<BlockPos, BlockState> lastAction = undoHistory.remove(undoHistory.size() - 1);
-                    for (Map.Entry<BlockPos, BlockState> entry : lastAction.entrySet()) {
-                        level.setBlock(entry.getKey(), entry.getValue(), 3);
-                    }
-                    player.sendSystemMessage(Component.translatable("message.areaedit.undo"));
-                }
+                ModNetwork.sendToServer(new ServerboundAreaActionPacket(action, new ArrayList<>(), SelectionState.getCustomMaxY()));
                 event.setCanceled(true);
             }
         }
     }
 }
-'''
+"""
 }
 
-def setup_project():
-    print("[+] Начинаю реструктуризацию исходников...")
-    for path, code in FILES.items():
-        # Создаем необходимые директории (math, init, client)
-        path.parent.mkdir(parents=True, exist_ok=True)
-
-        # Перезаписываем или создаем новый файл
+def apply_height_cap():
+    for path, content in files.items():
         with open(path, "w", encoding="utf-8") as f:
-            f.write(code.strip())
-        print(f" -> Файл обновлен: {path}")
-
-    print("\n[✔] Готово! Старый монолит разделен и очищен.")
+            f.write(content)
+        print(f"[+] Обновлен файл: {path}")
 
 if __name__ == "__main__":
-    setup_project()
+    apply_height_cap()

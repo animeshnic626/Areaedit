@@ -7,15 +7,77 @@
   },
   "minecraft:adventure/adventuring_time": {
     "criteria": {
+      "minecraft:deep_ocean": "2026-09-12 20:05:44 +0300",
       "minecraft:beach": "2026-09-11 14:37:27 +0300",
+      "minecraft:sparse_jungle": "2026-09-12 20:06:34 +0300",
+      "minecraft:river": "2026-09-12 20:05:05 +0300",
+      "minecraft:forest": "2026-09-12 20:05:09 +0300",
       "minecraft:lush_caves": "2026-09-11 15:09:47 +0300",
-      "minecraft:old_growth_birch_forest": "2026-09-11 14:37:12 +0300"
+      "minecraft:jungle": "2026-09-12 20:07:17 +0300",
+      "minecraft:ocean": "2026-09-12 20:05:39 +0300",
+      "minecraft:old_growth_birch_forest": "2026-09-11 14:37:12 +0300",
+      "minecraft:savanna": "2026-09-12 20:06:49 +0300",
+      "minecraft:plains": "2026-09-13 07:05:23 +0300"
     },
     "done": false
   },
   "minecraft:recipes/food/cake": {
     "criteria": {
       "has_egg": "2026-09-11 15:09:15 +0300"
+    },
+    "done": true
+  },
+  "minecraft:recipes/transportation/mangrove_boat": {
+    "criteria": {
+      "in_water": "2026-09-12 20:06:51 +0300"
+    },
+    "done": true
+  },
+  "minecraft:recipes/transportation/acacia_boat": {
+    "criteria": {
+      "in_water": "2026-09-12 20:06:51 +0300"
+    },
+    "done": true
+  },
+  "minecraft:recipes/transportation/cherry_boat": {
+    "criteria": {
+      "in_water": "2026-09-12 20:06:51 +0300"
+    },
+    "done": true
+  },
+  "minecraft:recipes/transportation/bamboo_raft": {
+    "criteria": {
+      "in_water": "2026-09-12 20:06:51 +0300"
+    },
+    "done": true
+  },
+  "minecraft:recipes/transportation/spruce_boat": {
+    "criteria": {
+      "in_water": "2026-09-12 20:06:51 +0300"
+    },
+    "done": true
+  },
+  "minecraft:recipes/transportation/birch_boat": {
+    "criteria": {
+      "in_water": "2026-09-12 20:06:51 +0300"
+    },
+    "done": true
+  },
+  "minecraft:recipes/transportation/oak_boat": {
+    "criteria": {
+      "in_water": "2026-09-12 20:06:51 +0300"
+    },
+    "done": true
+  },
+  "minecraft:recipes/transportation/jungle_boat": {
+    "criteria": {
+      "in_water": "2026-09-12 20:06:51 +0300"
+    },
+    "done": true
+  },
+  "minecraft:recipes/transportation/dark_oak_boat": {
+    "criteria": {
+      "in_water": "2026-09-12 20:06:51 +0300"
     },
     "done": true
   },
