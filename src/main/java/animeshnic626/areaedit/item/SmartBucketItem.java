@@ -12,8 +12,8 @@ import net.minecraft.world.level.Level;
 import java.util.*;
 
 public class SmartBucketItem extends Item {
-    private static final int MAX_FILL_LIMIT = 3000;
-    private static final int MAX_RADIUS = 64;
+    private static final int MAX_FILL_LIMIT = 626626626;
+    private static final int MAX_RADIUS = 626626626;
 
     public SmartBucketItem(Properties properties) {
         super(properties);

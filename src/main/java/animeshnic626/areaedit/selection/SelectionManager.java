@@ -10,6 +10,12 @@ public class SelectionManager {
 
     private static final Stack<Map<ColumnPos, ColumnSelection>> redoStack = new Stack<>();
 
+    // Очереди для плавной (постепенной) обработки по 10 элементов
+    private static final Queue<Map.Entry<ColumnPos, ColumnSelection>> pendingAddQueue = new LinkedList<>();
+    private static final Queue<ColumnPos> pendingRemovalQueue = new LinkedList<>();
+    private static int pendingFillMinY = 0;
+    private static int pendingFillMaxY = 0;
+
     public record SelectionSnapshot(
             Map<ColumnPos, ColumnSelection> selectedColumns,
             Set<ColumnPos> stickColumns,
@@ -28,6 +34,8 @@ public class SelectionManager {
         selectedColumns.clear();
         stickColumns.clear();
         bucketColumns.clear();
+        pendingAddQueue.clear();
+        pendingRemovalQueue.clear();
 
         if (snapshot != null) {
             selectedColumns.putAll(snapshot.selectedColumns());
@@ -72,15 +80,33 @@ public class SelectionManager {
         }
     }
 
-    public static void addBucketFill(Set<ColumnPos> filledPositions, int yMin, int yMax) {
+    // Запуск постепенного добавления заливки (без лимитов, порциями)
+    public static void addBucketFillGradual(Set<ColumnPos> filledPositions, int yMin, int yMax) {
+        pendingAddQueue.clear();
         for (ColumnPos pos : filledPositions) {
-            ColumnSelection sel = new ColumnSelection(pos, yMin, yMax);
-            selectedColumns.put(pos, sel);
-            bucketColumns.add(pos);
+            pendingAddQueue.add(new AbstractMap.SimpleEntry<>(pos, new ColumnSelection(pos, yMin, yMax)));
         }
+        pendingFillMinY = yMin;
+        pendingFillMaxY = yMax;
         redoStack.clear();
     }
 
+    // Метод для тиков клиента/сервера, добавляющий по 10 колонок за раз
+    public static void processAddBatch() {
+        for (int i = 0; i < 10 && !pendingAddQueue.isEmpty(); i++) {
+            Map.Entry<ColumnPos, ColumnSelection> entry = pendingAddQueue.poll();
+            if (entry != null) {
+                selectedColumns.put(entry.getKey(), entry.getValue());
+                bucketColumns.add(entry.getKey());
+            }
+        }
+    }
+
+    public static void addBucketFill(Set<ColumnPos> filledPositions, int yMin, int yMax) {
+        addBucketFillGradual(filledPositions, yMin, yMax);
+    }
+
+    // Удаление группы заливки порциями по 10 колонок
     public static boolean removeBucketFillAt(ColumnPos startPos) {
         if (!bucketColumns.contains(startPos)) {
             return false;
@@ -106,6 +132,12 @@ public class SelectionManager {
             }
         }
 
+        // Заполняем очередь на постепенное удаление
+        pendingRemovalQueue.clear();
+        for (ColumnPos pos : removedGroup.keySet()) {
+            pendingRemovalQueue.add(pos);
+        }
+
         for (ColumnPos pos : removedGroup.keySet()) {
             selectedColumns.remove(pos);
             bucketColumns.remove(pos);
@@ -113,6 +145,17 @@ public class SelectionManager {
 
         redoStack.push(removedGroup);
         return true;
+    }
+
+    // Метод для плавной обработки удаления по 10 колонок
+    public static void processRemovalBatch() {
+        for (int i = 0; i < 10 && !pendingRemovalQueue.isEmpty(); i++) {
+            ColumnPos pos = pendingRemovalQueue.poll();
+            if (pos != null) {
+                selectedColumns.remove(pos);
+                bucketColumns.remove(pos);
+            }
+        }
     }
 
     public static boolean redoBucketFill() {
@@ -136,5 +179,7 @@ public class SelectionManager {
         stickColumns.clear();
         bucketColumns.clear();
         redoStack.clear();
+        pendingAddQueue.clear();
+        pendingRemovalQueue.clear();
     }
 }

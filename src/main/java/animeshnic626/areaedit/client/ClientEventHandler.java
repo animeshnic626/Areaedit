@@ -9,14 +9,17 @@ import animeshnic626.areaedit.network.ServerboundAreaActionPacket;
 import animeshnic626.areaedit.render.SelectionRenderer;
 import animeshnic626.areaedit.selection.ColumnPos;
 import animeshnic626.areaedit.selection.SelectionManager;
+import animeshnic626.areaedit.selection.SelectionSaveHandler;
 import animeshnic626.areaedit.selection.SelectionState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 import net.minecraftforge.client.event.InputEvent;
 import net.minecraftforge.client.event.RenderLevelStageEvent;
+import net.minecraftforge.event.TickEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -25,6 +28,28 @@ import java.util.ArrayList;
 
 @Mod.EventBusSubscriber(modid = "areaedit", value = Dist.CLIENT)
 public class ClientEventHandler {
+
+    @SubscribeEvent
+    public static void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase == TickEvent.Phase.END) {
+            // Плавная обработка добавления и удаления блоков по 10 за тик
+            SelectionManager.processAddBatch();
+            SelectionManager.processRemovalBatch();
+        }
+    }
+
+    @SubscribeEvent
+    public static void onPlayerLogin(ClientPlayerNetworkEvent.LoggingIn event) {
+        // Загружаем выделенные зоны при входе в мир
+        SelectionSaveHandler.loadSelection();
+    }
+
+    @SubscribeEvent
+    public static void onPlayerLogout(ClientPlayerNetworkEvent.LoggingOut event) {
+        // Сохраняем зоны при выходе из мира
+        SelectionSaveHandler.saveSelection();
+        SelectionManager.clearAll();
+    }
 
     @SubscribeEvent
     public static void onKeyInput(InputEvent.Key event) {
@@ -46,6 +71,7 @@ public class ClientEventHandler {
 
         while (ModKeyBinds.CLEAR_SELECTION_KEY.consumeClick()) {
             SelectionManager.clearAll();
+            SelectionSaveHandler.saveSelection(); // Обновляем сохранение при очистке
         }
     }
 
